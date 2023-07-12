@@ -7,5 +7,6 @@ namespace TestUtils.Appium.UITests
 		void ActivateApp();
 		void CloseApp();
 		string ElementTree { get; }
+		public byte[] Screenshot();
 	}
 }

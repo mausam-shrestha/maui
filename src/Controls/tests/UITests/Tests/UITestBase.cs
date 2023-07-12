@@ -111,9 +111,10 @@ namespace Microsoft.Maui.AppiumTests
 			if (name == null)
 				name = TestContext.CurrentContext.Test.MethodName;
 
-			AppiumUITestApp? app = App as AppiumUITestApp;
+			// TODO: We can remove this when App is updated to be of type IApp2
+			IApp2? app = App as IApp2;
 			if (app is null)
-				throw new InvalidOperationException("App is not an AppiumUITestApp");
+				throw new InvalidOperationException("App is not an IApp2");
 
 			byte[] screenshotPngBytes = app.Screenshot();
 			if (screenshotPngBytes is null)
