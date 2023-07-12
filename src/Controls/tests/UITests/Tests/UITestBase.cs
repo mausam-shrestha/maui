@@ -4,6 +4,8 @@ using NUnit.Framework;
 using NUnit.Framework.Interfaces;
 using OpenQA.Selenium;
 using TestUtils.Appium.UITests;
+using VisualTestUtils;
+using VisualTestUtils.MagickNet;
 
 namespace Microsoft.Maui.AppiumTests
 {
@@ -24,9 +26,18 @@ namespace Microsoft.Maui.AppiumTests
 	public class UITestBase : UITestContextTestBase
 	{
 		readonly TestDevice _testDevice;
+		readonly VisualRegressionTester _visualRegressionTester;
+
 		public UITestBase(TestDevice device)
 		{
 			_testDevice = device;
+
+			string assemblyDirectory = Path.GetDirectoryName(System.AppDomain.CurrentDomain.BaseDirectory)!;
+			string projectRootDirectory = Path.GetFullPath(Path.Combine(assemblyDirectory, "..\\..\\..\\.."));
+			_visualRegressionTester = new VisualRegressionTester(testRootDirectory: projectRootDirectory,
+				visualComparer: new MagickNetVisualComparer(),
+				visualDiffGenerator: new MagickNetVisualDiffGenerator(),
+				ciArtifactsDirectory: Environment.GetEnvironmentVariable("BUILD_ARTIFACTSTAGINGDIRECTORY"));
 		}
 
 		protected virtual void FixtureSetup() { }
@@ -95,23 +106,20 @@ namespace Microsoft.Maui.AppiumTests
 			return testConfig;
 		}
 
-		public void VerifyScreenshot(string? name = null, Assembly? assembly = null)
+		public void VerifyScreenshot(string? name = null)
 		{
 			if (name == null)
 				name = TestContext.CurrentContext.Test.MethodName;
 
-			if (assembly == null)
-				assembly = Assembly.GetCallingAssembly();
-			string assemblyDirectory = Path.GetDirectoryName(assembly.Location)!;
-			string projectRootDirectory = Path.GetFullPath(Path.Combine(assemblyDirectory, "..\\..\\.."));
+			AppiumUITestApp? app = App as AppiumUITestApp;
+			if (app is null)
+				throw new InvalidOperationException("App is not an AppiumUITestApp");
 
-			Screenshot? screenshot = Driver?.GetScreenshot();
-			if (screenshot == null)
-			{
+			byte[] screenshotPngBytes = app.Screenshot();
+			if (screenshotPngBytes is null)
 				throw new InvalidOperationException("Failed to get screenshot");
-			}
 
-			byte[] screenshotBytes = screenshot.AsByteArray;
+			var actualImage = new ImageSnapshot(screenshotPngBytes, ImageSnapshotFormat.PNG);
 
 			string platform = _testDevice switch
 			{
@@ -122,22 +130,7 @@ namespace Microsoft.Maui.AppiumTests
 				_ => throw new NotImplementedException($"Unknown device type {_testDevice}"),
 			};
 
-			string baselineDirectory = Path.Combine(projectRootDirectory, "snapshots-baseline");
-			string diffsDirectory = Path.Combine(projectRootDirectory, "snapshots-diff");
-			string imageFileName = $"{name}-{platform}.png";
-
-			if (!VisualTestingUtils.VerifyBaselineImageExists(baselineDirectory, imageFileName, screenshotBytes, diffsDirectory))
-			{
-				Assert.Fail(
-					$"Baseline snapshot not yet created: {Path.Combine(baselineDirectory, imageFileName)}\n" +
-					$"Ensure new snapshot is correct:    {Path.Combine(diffsDirectory, imageFileName)}\n" +
-					$"and if so, copy it to the snapshots-baseline directory");
-			}
-
-			if (!VisualTestingUtils.VerifyImagesSame(baselineDirectory, imageFileName, screenshotBytes, 0.1, out double percentageDifference, diffsDirectory))
-			{
-				Assert.Fail($"Snapshot different than baseline: {imageFileName} ({percentageDifference}% difference)");
-			}
+			_visualRegressionTester.VerifyMatchesSnapshot(name!, actualImage, environmentName: platform);
 		}
 	}
 }
